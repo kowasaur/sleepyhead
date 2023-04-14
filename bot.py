@@ -1,25 +1,22 @@
-from disnake.interactions import application_command
+from disnake import interactions, Status, Intents, MemberCacheFlags
 from disnake.ext import commands
 from dotenv import load_dotenv
 from os import getenv
 import json
 from sleep import Sleep
 
-REMIND_TIMES = [
-    "22:00", "22:30", "23:00", "23:30", "00:00", "00:15", "00:30", "00:45",
-    "01:00", "01:10", "01:20", "01:30", "01:40", "01:50", "02:00"
-]
-Interaction = application_command.ApplicationCommandInteraction
+Interaction = interactions.application_command.ApplicationCommandInteraction
 
 try:
-    with open("sleepers.json", "r") as f:
-        sleepers = json.load(f)
+    with open("data.json", "r") as f:
+        data = json.load(f)
 except FileNotFoundError:
-    sleepers = []
+    data = {"sleepers": [], "guilds": []}
 
 load_dotenv()
-
-bot = commands.InteractionBot(test_guilds=[606730636866093066])
+sleepers: list[int] = data["sleepers"]
+guilds: list[int] = data["guilds"]  # repsective guilds of each sleeper
+bot = commands.InteractionBot(intents=Intents.all())
 
 
 @bot.event
@@ -28,8 +25,8 @@ async def on_ready():
 
 
 def update_sleepers():
-    with open("sleepers.json", "w") as f:
-        json.dump(sleepers, f)
+    with open("data.json", "w") as f:
+        json.dump({"sleepers": sleepers, "guilds": guilds}, f)
 
 
 @bot.slash_command(description="What does this bot do?")
@@ -48,6 +45,7 @@ async def register(inter: Interaction):
         return
 
     sleepers.append(author)
+    guilds.append(inter.guild_id)
     update_sleepers()
     await inter.response.send_message("Registered!")
 
@@ -60,19 +58,22 @@ async def deregister(inter: Interaction):
         await inter.response.send_message("You're already not registered")
         return
 
-    sleepers.remove(author)
+    index = sleepers.index(author)
+    sleepers.pop(index)
+    guilds.pop(index)
     update_sleepers()
     await inter.response.send_message("Deregistered")
 
 
-# TODO: only send while online
 async def remind_sleepers():
     sleep = Sleep()
     while True:
         await sleep.wait_until_next()
-        for sleeper in sleepers:
-            user = await bot.fetch_user(sleeper)
-            await user.send("Sleep")
+        for i, sleeper in enumerate(sleepers):
+            guild = bot.get_guild(guilds[i])
+            member = guild.get_member(sleeper)
+            if member.status != Status.offline:
+                await member.send("Sleep")
 
 
 bot.loop.create_task(remind_sleepers())
